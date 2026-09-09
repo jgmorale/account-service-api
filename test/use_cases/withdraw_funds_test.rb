@@ -18,7 +18,7 @@ class WithdrawFundsTest < ActiveSupport::TestCase
     assert_equal 750, withdrawal.resulting_balance
     assert_equal 750, @account.reload.balance
     assert_equal "req-1", withdrawal.idempotency_key
-    assert_equal 1, Withdrawal.count
+    assert_equal 1, Withdrawal.where(account_id: @account.id).count
   end
 
   test "returns the existing withdrawal for the same idempotency key" do
