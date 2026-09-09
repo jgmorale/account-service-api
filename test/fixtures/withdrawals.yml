@@ -1,0 +1,13 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  account: one
+  idempotency_key: MyString
+  amount: 1
+  resulting_balance: 1
+
+two:
+  account: two
+  idempotency_key: MyString
+  amount: 1
+  resulting_balance: 1
