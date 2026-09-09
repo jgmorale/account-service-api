@@ -1,0 +1,2 @@
+class AccountNotFoundError < StandardError
+end

@@ -1,0 +1,2 @@
+class InvalidAmountError < StandardError
+end

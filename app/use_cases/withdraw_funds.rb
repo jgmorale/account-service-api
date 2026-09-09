@@ -1,10 +1,11 @@
 class WithdrawFunds
   def call(account_id:, idempotency_key:, amount:)
-    raise "Amount should be greater than 0. Current value: #{amount}" if amount <= 0
+    raise InvalidAmountError, "Amount must be greater than 0" if amount <= 0
 
     Account.transaction do
       account = Account.lock.find_by(id: account_id)
-      raise "Account not found" if account.blank?
+
+      raise AccountNotFoundError, "Account #{account_id} not found" if account.blank?
 
       withdrawal = Withdrawal.find_by(
                                        account_id: account_id,
@@ -12,7 +13,7 @@ class WithdrawFunds
                                       )
       next withdrawal if withdrawal.present?
 
-      raise "Insufficient funds" if account.balance < amount
+      raise InsufficientFundsError if account.balance < amount
 
       account.update!( balance: account.balance - amount )
 

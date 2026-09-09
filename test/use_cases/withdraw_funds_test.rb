@@ -74,13 +74,13 @@ class WithdrawFundsTest < ActiveSupport::TestCase
 
     assert_equal 600, first_result.amount
     assert_equal 400, account.reload.balance
-    assert_instance_of RuntimeError, second_result
-    assert_equal "Insufficient funds", second_result.message
+    assert_instance_of InsufficientFundsError, second_result
+    assert_equal "InsufficientFundsError", second_result.message
     assert_equal 1, Withdrawal.where(account_id: account.id).count
   end
 
-  test "raises an error when amount is not positive" do
-    error = assert_raises(RuntimeError) do
+  test "raises an InvalidAmountError when amount is not positive" do
+    error = assert_raises(InvalidAmountError) do
       @use_case.call(
         account_id: @account.id,
         idempotency_key: "req-invalid-amount",
@@ -88,11 +88,11 @@ class WithdrawFundsTest < ActiveSupport::TestCase
       )
     end
 
-    assert_equal "Amount should be greater than 0. Current value: 0", error.message
+    assert_equal "Amount must be greater than 0", error.message
   end
 
-  test "raises an error when the account does not exist" do
-    error = assert_raises(RuntimeError) do
+  test "raises an AccountNotFoundError when the account does not exist" do
+    error = assert_raises(AccountNotFoundError) do
       @use_case.call(
         account_id: 999_999,
         idempotency_key: "req-unknown-account",
@@ -100,11 +100,11 @@ class WithdrawFundsTest < ActiveSupport::TestCase
       )
     end
 
-    assert_equal "Account not found", error.message
+    assert_equal "Account 999999 not found", error.message
   end
 
-  test "raises an error when the balance is insufficient" do
-    error = assert_raises(RuntimeError) do
+  test "raises an InsufficientFundsError when the balance is insufficient" do
+    error = assert_raises(InsufficientFundsError) do
       @use_case.call(
         account_id: @account.id,
         idempotency_key: "req-insufficient-funds",
@@ -112,6 +112,6 @@ class WithdrawFundsTest < ActiveSupport::TestCase
       )
     end
 
-    assert_equal "Insufficient funds", error.message
+    assert_equal "InsufficientFundsError", error.message
   end
 end
