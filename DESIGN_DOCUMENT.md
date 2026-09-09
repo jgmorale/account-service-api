@@ -1,47 +1,29 @@
-# Design Document — Account Service Withdrawal API
+# Account Service — Withdrawal API Design
 
-## Context
+## Overview
 
-`account_service` administra cuentas y sus balances.
+`account_service` manages account balances and exposes an API for withdrawing funds.
 
-Necesitamos permitir que un cliente solicite el retiro de fondos de una cuenta.
+The main design goals are:
 
-Debido a retries, timeouts y requests concurrentes, una misma operación lógica podría recibirse múltiples veces. El sistema debe evitar descontar el balance más de una vez.
+* prevent duplicate withdrawals caused by retries;
+* prevent concurrent withdrawals from overspending an account;
+* keep balance updates and withdrawal records consistent;
+* return stable results for repeated idempotent requests.
 
----
-
-## Goals
-
-El endpoint debe:
-
-* Permitir retirar fondos de una cuenta.
-* Garantizar idempotencia.
-* Manejar requests concurrentes de manera segura.
-* Evitar balances negativos.
-* Devolver consistentemente el resultado de un request repetido.
-* Proporcionar errores claros al caller.
-
-## Non-goals
-
-Para mantener el ejercicio acotado:
-
-* `amount` será un entero.
-* No habrá múltiples monedas.
-* No habrá transferencias entre cuentas.
-* No implementaremos autenticación/autorización.
-* No implementaremos integración con un payment provider externo.
+The initial implementation intentionally keeps the system small: all relevant state is stored in a single relational database and no external payment provider is involved.
 
 ---
 
-# API Contract
+## API
 
-## Endpoint
+### Endpoint
 
 ```http
 POST /v1/accounts/{account_id}/withdrawals
 ```
 
-## Request
+### Request
 
 ```json
 {
@@ -50,105 +32,15 @@ POST /v1/accounts/{account_id}/withdrawals
 }
 ```
 
-## Parameters
+### Parameters
 
-| Campo             | Tipo           | Obligatorio | Descripción                                           |
-| ----------------- | -------------- | ----------: | ----------------------------------------------------- |
-| `account_id`      | UUID / Integer |          Sí | Cuenta sobre la que se realiza el retiro              |
-| `idempotency_key` | String         |          Sí | Identificador idempotente proporcionado por el caller |
-| `amount`          | Integer        |          Sí | Cantidad a retirar                                    |
+| Field             | Type    | Required | Description                                          |
+| ----------------- | ------- | -------: | ---------------------------------------------------- |
+| `account_id`      | Integer |      Yes | Account to withdraw funds from                       |
+| `idempotency_key` | String  |      Yes | Caller-provided identifier for the logical operation |
+| `amount`          | Integer |      Yes | Amount to withdraw                                   |
 
----
-
-# Idempotency Semantics
-
-Para una cuenta determinada, un `idempotency_key` identifica exactamente una operación lógica de retiro.
-
-La combinación:
-
-```text
-(account_id, idempotency_key)
-```
-
-debe ser única.
-
-Ejemplo:
-
-```text
-POST account=442 idempotency_key=A amount=500
-POST account=442 idempotency_key=A amount=700
-```
-
-Esto se considera un conflicto de idempotencia y no debería procesarse como una operación diferente.
-
-Una posible respuesta sería:
-
-```http
-409 Conflict
-```
-
-> **Nota:** este escenario se identificó durante el diseño, pero no forma parte de la implementación inicial.
-
----
-
-# Business Invariants
-
-## Amount
-
-```text
-amount > 0
-```
-
-La cantidad a retirar siempre debe ser positiva.
-
-## Sufficient balance
-
-```text
-balance >= amount
-```
-
-La cantidad a retirar debe ser menor o igual que el balance disponible.
-
-## Non-negative balance
-
-```text
-balance >= 0
-```
-
-Una cuenta nunca puede tener un balance negativo.
-
-## Idempotent withdrawal
-
-```text
-(account_id, idempotency_key)
-```
-
-Una operación lógica de withdrawal sólo puede descontar fondos como máximo una vez.
-
-## Concurrent withdrawals
-
-Ejemplo:
-
-```text
-balance = 500
-
-Request A: withdraw 400
-Request B: withdraw 400
-```
-
-Withdrawals concurrentes no pueden consumir los mismos fondos.
-
-Sólo uno puede ganar.
-
-Por lo tanto:
-
-> La validación del balance y su actualización deben comportarse como una operación atómica.
-
----
-
-# Error Semantics
-
-## Successful withdrawal
+### Success Response
 
 ```http
 200 OK
@@ -157,544 +49,392 @@ Por lo tanto:
 ```json
 {
   "result": "success",
-  "balance_after_withdrawal": 1000
+  "balance_after_withdrawal": 500
 }
 ```
-
-## Invalid request
-
-```http
-400 Bad Request
-```
-
-```json
-{
-  "result": "bad_request",
-  "message": "amount is required"
-}
-```
-
-## Insufficient funds
-
-```http
-422 Unprocessable Content
-```
-
-```json
-{
-  "result": "insufficient_funds",
-  "current_balance": 300
-}
-```
-
-## Account not found
-
-```http
-404 Not Found
-```
-
-## Internal server error
-
-```http
-500 Internal Server Error
-```
-
-```json
-{
-  "result": "internal_server_error"
-}
-```
-
-Los detalles internos del error deberían escribirse en logs en lugar de regresarse al cliente.
-
-Esta decisión puede discutirse dependiendo de los requerimientos de observabilidad y debugging del sistema.
 
 ---
 
-# Data Model
+## Scope
 
-## Account
+### Goals
 
-| Campo     | Descripción                        |
-| --------- | ---------------------------------- |
-| `id`      | Identificador interno de la cuenta |
-| `balance` | Balance disponible                 |
+* Support account withdrawals.
+* Guarantee idempotent processing.
+* Prevent negative balances.
+* Handle concurrent withdrawals safely.
+* Return the original result when a successful request is retried.
 
-## Withdrawal
+### Non-goals
 
-| Campo               | Descripción                                               |
-| ------------------- | --------------------------------------------------------- |
-| `id`                | Identificador interno del withdrawal                      |
-| `account_id`        | Cuenta asociada                                           |
-| `idempotency_key`   | Identificador de la operación proporcionado por el caller |
-| `amount`            | Cantidad retirada                                         |
-| `resulting_balance` | Balance resultante después de esta operación              |
-| `created_at`        | Timestamp de creación                                     |
+* Authentication and authorization.
+* Multiple currencies.
+* Account-to-account transfers.
+* External payment provider integration.
+* Decimal monetary representation.
+* Idempotency-key payload validation beyond the initial implementation.
 
-### Constraint
+---
+
+## Data Model
+
+### Account
+
+| Field     | Description               |
+| --------- | ------------------------- |
+| `id`      | Primary key               |
+| `balance` | Current available balance |
+
+### Withdrawal
+
+| Field               | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| `id`                | Primary key                                      |
+| `account_id`        | Associated account                               |
+| `idempotency_key`   | Caller-provided operation identifier             |
+| `amount`            | Withdrawn amount                                 |
+| `resulting_balance` | Account balance immediately after the withdrawal |
+| `created_at`        | Creation timestamp                               |
+
+### Constraints
 
 ```text
 UNIQUE(account_id, idempotency_key)
 ```
 
-Esta combinación también debe estar indexada porque se utilizará continuamente para buscar withdrawals previamente procesados.
+The unique composite index serves two purposes:
+
+1. prevents duplicate logical withdrawals;
+2. supports efficient idempotency lookups.
+
+`Withdrawal.account_id` is also enforced as a foreign key to `Account`.
 
 ---
 
-# Transaction Boundary
+## Business Invariants
 
-Las operaciones relevantes son:
+The implementation must preserve the following invariants:
 
 ```text
-find withdrawal
-find account
-validate balance
-decrement balance
-create withdrawal
+amount > 0
 ```
 
-Pregunta principal:
+```text
+balance >= 0
+```
 
-> ¿Cuáles de estas operaciones necesitan pertenecer a la misma transacción?
+```text
+A logical withdrawal may affect the balance at most once.
+```
 
-La validación del balance debe ocurrir sobre el estado autoritativo de la cuenta y dentro de la misma transacción que modifica el balance.
+```text
+Two concurrent withdrawals must not spend the same available funds.
+```
 
-Esto evita tomar decisiones basadas en un valor potencialmente desactualizado proveniente de una read replica con replica lag.
+For example:
 
-El flujo final es aproximadamente:
+```text
+balance = 500
+
+Withdrawal A = 400
+Withdrawal B = 400
+```
+
+At most one withdrawal may succeed.
+
+---
+
+## Idempotency
+
+For a given account, the pair:
+
+```text
+(account_id, idempotency_key)
+```
+
+identifies one logical withdrawal.
+
+Example:
+
+```text
+Request 1:
+account_id = 1
+idempotency_key = A
+amount = 700
+```
+
+If the request succeeds with:
+
+```text
+resulting_balance = 300
+```
+
+then any retry using the same idempotency key returns the stored withdrawal result without modifying the balance again.
+
+The response is based on `Withdrawal.resulting_balance`, not the account's current balance.
+
+This matters because later operations may change the account:
+
+```text
+Initial balance                 1000
+Withdrawal A                    -700
+Result after A                   300
+Withdrawal B                    -300
+Current balance                   0
+Retry Withdrawal A              -> returns 300
+```
+
+The retry observes the result of the original logical operation.
+
+---
+
+## Transaction and Concurrency Model
+
+Balance validation and modification must happen atomically against the authoritative account state.
+
+The withdrawal flow is:
 
 ```text
 validate request
         ↓
 BEGIN TRANSACTION
         ↓
-find Account WITH LOCK
+lock Account row
         ↓
 find existing Withdrawal
         ↓
-validate account state
+if found → return stored result
         ↓
 validate sufficient balance
         ↓
-update Account
+update Account balance
         ↓
 create Withdrawal
         ↓
 COMMIT
 ```
 
-El row-level lock se libera después del `COMMIT` o `ROLLBACK`.
+The account row is acquired using a pessimistic row-level lock.
+
+The lock remains held until the transaction commits or rolls back.
 
 ---
 
-# Failure Scenarios
+## Why Pessimistic Locking?
 
-Se deben considerar al menos los siguientes escenarios:
+Without locking, two concurrent transactions may both observe the same balance:
 
-1. Duplicate sequential request.
-2. Duplicate concurrent request.
-3. Two different withdrawals competing for the same balance.
-4. Process crashes before modifying balance.
-5. Process crashes after modifying balance.
-6. Database transaction fails.
-7. Same idempotency key arrives with a different amount.
-
-Para cada escenario debemos preguntarnos:
-
-* ¿Qué observa el caller?
-* ¿Qué queda persistido?
-* ¿Es seguro hacer retry?
-
----
-
-# Concurrency and Locking Analysis
-
-## Failure mode without locking
-
-Supongamos:
-
-```text
-Account balance = 500
-```
-
-Dos transacciones concurrentes:
-
-| TX A               | TX B               |
+| Transaction A      | Transaction B      |
 | ------------------ | ------------------ |
-| read balance → 500 | read balance → 500 |
-| `500 >= 400` ✓     | `500 >= 400` ✓     |
-| balance = 100      | balance = 100      |
+| read balance = 500 | read balance = 500 |
+| validate 400 ≤ 500 | validate 400 ≤ 500 |
+| set balance = 100  | set balance = 100  |
 | commit             | commit             |
 
-Cada transacción hizo individualmente algo aparentemente correcto.
+Both withdrawals would appear successful even though the account only had enough funds for one.
 
-Globalmente, sin embargo, acabamos de aceptar:
-
-```text
-400 + 400 = 800
-```
-
-en withdrawals cuando la cuenta solamente tenía:
+With row-level locking:
 
 ```text
-500
-```
-
-Necesitamos evitar que dos transacciones puedan tomar simultáneamente una decisión basada en el mismo balance antiguo.
-
----
-
-## Row-level pessimistic locking
-
-El request que obtenga primero acceso exclusivo a cierto `account_id` debe bloquear ese registro mientras toma la decisión y actualiza el balance.
-
-Conceptualmente:
-
-```text
-lock/find Account
-        ↓
-read authoritative balance
-        ↓
-validate balance
-        ↓
-update balance
-        ↓
-create Withdrawal
-        ↓
+Transaction A
+    ↓
+locks Account
+    ↓
+reads balance = 500
+    ↓
+withdraws 400
+    ↓
+balance = 100
+    ↓
 commit
-        ↓
-lock released
 ```
 
-Para una cuenta determinada, solamente una transacción puede tomar decisiones sobre su balance a la vez.
+Transaction B waits for the same account row:
 
-Esto permite que diferentes cuentas sigan siendo procesadas concurrentemente.
+```text
+Transaction B
+    ↓
+waits
+    ↓
+acquires lock after A commits
+    ↓
+reads balance = 100
+    ↓
+insufficient funds
+```
+
+Different accounts can still be processed concurrently.
+
+### Trade-off
+
+Pessimistic locking serializes writes for the same account and may introduce:
+
+* contention;
+* increased latency;
+* lock timeouts;
+* deadlocks.
+
+For this service, correctness and simplicity are prioritized, and high write contention on an individual account is not expected.
+
+If contention became significant, optimistic concurrency or atomic conditional updates could be evaluated.
 
 ---
 
-## Trade-offs of row-level locking
+## Transaction Boundary
 
-Si una transacción mantiene el lock durante demasiado tiempo pueden aparecer:
+The following operations belong to the same transaction:
 
-* Contention.
-* Mayor latency.
-* Timeouts.
-* Deadlocks.
+```text
+lock account
+read current balance
+check idempotency
+validate sufficient funds
+update balance
+create withdrawal
+```
 
-Por esta razón debemos mantener las transacciones pequeñas y evitar trabajo innecesario mientras el registro está bloqueado.
+This guarantees that the system cannot persist:
 
-En este escenario todo ocurre dentro de la misma base de datos, por lo que el mecanismo se mantiene relativamente simple.
+```text
+balance updated
++
+withdrawal missing
+```
+
+or:
+
+```text
+withdrawal created
++
+balance not updated
+```
+
+If any database operation fails, the entire transaction rolls back.
+
+Validation that does not depend on database state, such as:
+
+```text
+amount > 0
+```
+
+is performed before opening the transaction to minimize lock duration.
 
 ---
 
-## Authoritative reads
+## Read Consistency
 
-El chequeo del balance debe ocurrir en la base de datos principal dentro de la misma transacción que actualiza el balance.
+Balance validation must use the primary database participating in the transaction.
 
-No debemos tomar una decisión financiera como:
+A read replica may contain stale state due to replication lag and therefore must not be used to decide whether funds are available.
+
+The correctness decision:
 
 ```text
 balance >= amount
 ```
 
-utilizando una read replica que pueda presentar replica lag.
+must use authoritative state.
 
 ---
 
-## Timestamps do not establish execution order
+## Error Semantics
 
-Ejemplo:
+| Scenario                    |                 HTTP Status |
+| --------------------------- | --------------------------: |
+| Successful withdrawal       |                    `200 OK` |
+| Invalid request             |           `400 Bad Request` |
+| Account not found           |             `404 Not Found` |
+| Insufficient funds          | `422 Unprocessable Content` |
+| Idempotency conflict        |              `409 Conflict` |
+| Unexpected internal failure | `500 Internal Server Error` |
 
-```text
-A created_at = 10:00:00.001
-B created_at = 10:00:00.002
-```
-
-Esto no garantiza que A haya adquirido primero el lock.
-
-En sistemas concurrentes no debemos confiar en timestamps para decidir quién ejecuta primero, salvo que explícitamente estemos construyendo un mecanismo de ordering.
-
-Para este ejercicio solamente necesitamos garantizar:
-
-> Como máximo una operación puede consumir los fondos disponibles cuando varias operaciones compiten por el mismo balance.
+Internal infrastructure details should be logged rather than exposed to API clients.
 
 ---
 
-# Locking Strategy
+## Failure Scenarios
 
-El `account_service` es relativamente sencillo y no esperamos cientos de withdrawals concurrentes sobre la misma cuenta por segundo.
+The design should remain safe under the following conditions:
 
-Alternativas consideradas:
+1. Sequential duplicate requests.
+2. Concurrent duplicate requests.
+3. Concurrent withdrawals competing for the same balance.
+4. Failure before the balance update.
+5. Failure after the balance update but before withdrawal creation.
+6. Database transaction failure.
+7. Reuse of an idempotency key with different request parameters.
 
-* Pessimistic locking.
-* Optimistic locking.
+For each failure mode, the key questions are:
 
-## Requirements
-
-Queremos:
-
-* Correctness.
-* Implementación fácil de entender.
-* Transacciones pequeñas.
-* Comportamiento predecible.
-
-Para este escenario se eligió:
-
-> **Pessimistic row-level locking**
-
-porque priorizamos correctness y simplicidad, y esperamos baja contención por cuenta.
+* What does the caller observe?
+* What state is persisted?
+* Is retrying safe?
 
 ---
 
-# Lock Lifetime
+## Validated Behavior
 
-Secuencia inicial considerada:
+The following behavior was manually verified.
 
-```text
-find/create Withdrawal
-find Account
-validate amount
-validate balance
-update Account
-mark Withdrawal successful
-```
-
-La validación de `amount` debe ocurrir antes de entrar a la sección protegida porque no depende del estado de la cuenta.
-
-Esto reduce el tiempo durante el cual mantenemos abierta la transacción.
-
-El flujo protegido queda:
-
-```text
-validate request
-
-BEGIN TRANSACTION
-        ↓
-find Account WITH LOCK
-        ↓
-find Withdrawal
-        ↓
-validate balance
-        ↓
-update Account
-        ↓
-create Withdrawal
-        ↓
-COMMIT
-```
-
----
-
-# Duplicate Concurrent Requests
-
-Consideremos dos requests:
-
-```text
-Request A                  Request B
-
-account=1                  account=1
-idempotency_key=X          idempotency_key=X
-amount=400                 amount=400
-```
-
-El comportamiento deseado es:
-
-```text
-Request A
-    ↓
-locks Account
-    ↓
-Withdrawal X does not exist
-    ↓
-updates balance
-    ↓
-creates Withdrawal X
-    ↓
-COMMIT
-```
-
-Mientras tanto:
-
-```text
-Request B
-    ↓
-waits for Account lock
-    ↓
-acquires Account lock
-    ↓
-Withdrawal X already exists
-    ↓
-returns stored result
-```
-
-El segundo request no vuelve a descontar el balance.
-
----
-
-# Why Store `resulting_balance`?
-
-Supongamos:
-
-```text
-Initial balance = 1000
-```
-
-Primer withdrawal:
-
-```text
-idempotency_key = A
-amount = 700
-resulting_balance = 300
-```
-
-Posteriormente ocurre otra operación:
-
-```text
-amount = 300
-current account balance = 0
-```
-
-Si después vuelve a llegar:
-
-```text
-idempotency_key = A
-amount = 700
-```
-
-el sistema debe devolver el resultado original:
-
-```text
-resulting_balance = 300
-```
-
-y no el balance actual de la cuenta.
-
-Esto permite que un retry de la misma operación observe un resultado consistente.
-
----
-
-# Trade-offs
-
-## Pessimistic locking
-
-Se utiliza pessimistic locking porque no esperamos cientos de requests concurrentes intentando modificar el balance de la misma cuenta.
-
-Ventajas:
-
-* Modelo de concurrencia sencillo.
-* Fácil de razonar.
-* Evita decisiones simultáneas basadas en un balance antiguo.
-* Prioriza correctness.
-
-Desventajas:
-
-* Serializa modificaciones sobre la misma cuenta.
-* Puede generar contention.
-* Puede incrementar latency bajo alta concurrencia.
-* Requiere mantener pequeñas las transacciones.
-
-Si el sistema tuviera cuentas extremadamente hot o un workload similar a sistemas de trading de alta frecuencia, habría que reevaluar esta decisión.
-
----
-
-# Open Questions
-
-* ¿Cómo debería manejarse la reutilización de un `idempotency_key` con un `amount` diferente?
-* ¿Durante cuánto tiempo deben conservarse los registros de idempotencia?
-* ¿Qué estrategia de autenticación debería utilizar el servicio?
-* ¿Cómo se debería realizar authorization para garantizar que un caller puede retirar fondos de una cuenta determinada?
-* ¿Cómo cambiaría el diseño si el withdrawal requiriera comunicarse con un servicio externo?
-* ¿Qué estrategia usaríamos si la contención por cuenta aumentara significativamente?
-
----
-
-# Tests
-
-## Sequential behavior
-
-Se ejecutaron manualmente las siguientes pruebas.
-
-### Initial state
+Initial state:
 
 ```text
 balance = 1000
 ```
 
-### Withdrawal 1
+First withdrawal:
+
+```text
+idempotency_key = 122323
+amount = 700
+resulting_balance = 300
+```
+
+Retrying the same request:
 
 ```text
 idempotency_key = 122323
 amount = 700
 ```
 
-Resultado:
+returns:
 
 ```text
 resulting_balance = 300
 ```
 
-### Idempotent retry
+without modifying the account again.
 
-Se repite:
-
-```text
-idempotency_key = 122323
-amount = 700
-```
-
-Resultado:
-
-```text
-No vuelve a descontar.
-Devuelve resulting_balance = 300.
-```
-
-### Different withdrawal
-
-Otra operación retira:
+A second independent withdrawal:
 
 ```text
 amount = 300
 ```
 
-Resultado:
-
-```text
-current account balance = 0
-```
-
-### Retry after account state changed
-
-Se vuelve a enviar:
-
-```text
-idempotency_key = 122323
-amount = 700
-```
-
-Resultado:
-
-```text
-resulting_balance = 300
-```
-
-aunque el balance actual de la cuenta sea:
+changes the current account balance to:
 
 ```text
 0
 ```
 
-Esto confirma que el resultado del withdrawal se conserva independientemente de operaciones posteriores.
+Retrying the original request still returns:
+
+```text
+resulting_balance = 300
+```
+
+which confirms stable idempotent response semantics.
 
 ---
 
-# Pending Tests
+## Future Considerations
 
-Aún deben validarse explícitamente:
+The following concerns are intentionally deferred:
 
-1. Dos withdrawals diferentes concurrentes compitiendo por el mismo balance.
-2. Dos requests concurrentes con el mismo `idempotency_key`.
-3. Rollback cuando falla la creación del `Withdrawal`.
-4. Account inexistente.
-5. `amount <= 0`.
-6. Database failure dentro de la transacción.
+* binding an idempotency key to the complete request payload;
+* idempotency record retention policies;
+* authentication and authorization;
+* account ownership validation;
+* external payment provider integration;
+* alternative concurrency strategies under high contention;
+* monetary representation using currency-aware decimal values.
