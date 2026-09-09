@@ -6,4 +6,10 @@ Read DESIGN_DOCUMENT.md
 
 Use bundle config set --local path 'vendor/bundle' to configure the project for local installation of gems
 
+Execute bundle install
+
+Migrate db
+
+rails db:migrate
+
 Use "bundle exec rails test" to execute the tests

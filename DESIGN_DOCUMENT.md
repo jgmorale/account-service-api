@@ -339,14 +339,14 @@ must use authoritative state.
 
 ## Error Semantics
 
-| Scenario                    |                 HTTP Status |
-| --------------------------- | --------------------------: |
-| Successful withdrawal       |                    `200 OK` |
-| Invalid request             |           `400 Bad Request` |
-| Account not found           |             `404 Not Found` |
-| Insufficient funds          | `422 Unprocessable Content` |
-| Idempotency conflict        |              `409 Conflict` |
-| Unexpected internal failure | `500 Internal Server Error` |
+| Scenario                     |                 HTTP Status |
+| ---------------------------- | --------------------------: |
+| Successful withdrawal        |                    `200 OK` |
+| Invalid request              |           `400 Bad Request` |
+| Account not found            |             `404 Not Found` |
+| Insufficient funds           | `422 Unprocessable Content` |
+| Idempotency conflict (future)|              `409 Conflict` |
+| Unexpected internal failure  | `500 Internal Server Error` |
 
 Internal infrastructure details should be logged rather than exposed to API clients.
 
