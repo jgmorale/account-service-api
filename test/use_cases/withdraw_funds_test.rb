@@ -31,7 +31,7 @@ class WithdrawFundsTest < ActiveSupport::TestCase
     second = @use_case.call(
       account_id: @account.id,
       idempotency_key: "req-duplicate",
-      amount: 500
+      amount: 250
     )
 
     assert_equal first.id, second.id
