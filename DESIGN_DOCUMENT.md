@@ -270,3 +270,19 @@ amount=400                    amount=400
 ¿Qué queremos regresar si se crea primero A y luego encontramos que falla B porque ya existe B?
 -> Probablemente queramos regresar el success de la primera operación porque ya intentamos la misma operación y fue exitosa.
 
+## Pruebas
+Se hicieron las pruebas y se observa el siguiente comportamiento
+
+1) balance = 1000
+2) key=122323, amount=700
+   -> resulting_balance = 300
+
+3) mismo key=122323, amount=700
+   -> no vuelve a descontar
+   -> devuelve el resultado previo: 300
+
+4) otra operación distinta retira 300
+   -> balance actual = 0
+
+5) vuelves a mandar key=122323, amount=700
+   -> debe seguir devolviendo resulting_balance = 300
