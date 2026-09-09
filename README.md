@@ -1,7 +1,7 @@
 # README
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+A small Rails API exploring safe and idempotent financial operations,
+including concurrent withdrawals, database transactions and row-level locking.
 
 Things you may want to cover:
 
