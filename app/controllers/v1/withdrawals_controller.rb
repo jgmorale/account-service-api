@@ -12,7 +12,7 @@ module V1
       render json: {
         result: "success",
         balance_after_withdrawal: withdrawal.resulting_balance
-      }, status: :created
+      }, status: :ok
     end
 
     private

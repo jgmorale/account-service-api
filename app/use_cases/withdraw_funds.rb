@@ -13,7 +13,7 @@ class WithdrawFunds
                                       )
       next withdrawal if withdrawal.present?
 
-      raise InsufficientFundsError if account.balance < amount
+      raise InsufficientFundsError, "Insufficient funds" if account.balance < amount
 
       account.update!( balance: account.balance - amount )
 

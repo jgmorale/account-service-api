@@ -13,7 +13,7 @@ class V1::WithdrawalsControllerTest < ActionDispatch::IntegrationTest
          },
          as: :json
 
-    assert_response :created
+    assert_response :ok
     assert_equal "success", JSON.parse(response.body)["result"]
     assert_equal 750, JSON.parse(response.body)["balance_after_withdrawal"]
   end

@@ -75,7 +75,7 @@ class WithdrawFundsTest < ActiveSupport::TestCase
     assert_equal 600, first_result.amount
     assert_equal 400, account.reload.balance
     assert_instance_of InsufficientFundsError, second_result
-    assert_equal "InsufficientFundsError", second_result.message
+    assert_equal "Insufficient funds", second_result.message
     assert_equal 1, Withdrawal.where(account_id: account.id).count
   end
 
@@ -112,6 +112,6 @@ class WithdrawFundsTest < ActiveSupport::TestCase
       )
     end
 
-    assert_equal "InsufficientFundsError", error.message
+    assert_equal "Insufficient funds", error.message
   end
 end
